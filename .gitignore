@@ -1,10 +1,12 @@
 __pycache__
 temp/
 data/
-
+runs/
 
 models/classifier/**/*.png
 *.pt
 *.onnx
 *.json
 *.pth
+
+predict.ipynb

@@ -104,17 +104,23 @@ def create_default_crop(image_path, crop_type):
         print(f"기본 크롭 생성 중 오류: {str(e)}")
         return None
 
-def detect_pokecolo(image_path):
+def detect_pokecolo(image_path, padding_percent=0.1):
     """
     입력 이미지에서 pokecolo 객체를 탐지하고, 가장 신뢰도가 높은 하나만 반환
+    상하좌우에 여유 공간(padding)을 추가하여 크롭합니다.
     
     Args:
         image_path: 입력 이미지 경로
+        padding_percent: 상하좌우에 추가할 여유 공간 비율 (원본 높이/너비의 비율)
     
     Returns:
         tuple: (처리할 이미지 경로, pokecolo가 검출되었는지 여부)
               pokecolo가 검출되면 크롭된 이미지 경로, 아니면 원본 이미지 경로 반환
     """
+    # 원본 이미지 로드하여 크기 확인
+    orig_img = Image.open(image_path)
+    img_width, img_height = orig_img.size
+    
     # coord_detector로 pokecolo 객체 감지
     results, crops, labels, boxes = coord_detector.detect(
         image_path,
@@ -129,7 +135,7 @@ def detect_pokecolo(image_path):
     for crop, label, box in zip(crops, labels, boxes):
         if label == "pokecolo":  # pokecolo 라벨 확인
             confidence = box[4] if len(box) > 4 else 0.0
-            pokecolo_crops.append((crop, confidence))
+            pokecolo_crops.append((crop, confidence, box))
             pokecolo_boxes.append(box)
     
     # pokecolo가 검출되지 않은 경우 원본 이미지 반환
@@ -139,13 +145,37 @@ def detect_pokecolo(image_path):
     
     # 신뢰도가 가장 높은 pokecolo 선택
     best_pokecolo = max(pokecolo_crops, key=lambda x: x[1])
-    best_crop, best_conf = best_pokecolo
+    best_crop, best_conf, best_box = best_pokecolo
     
     print(f"신뢰도 {best_conf:.2f}의 pokecolo를 검출했습니다.")
     
+    # 기존 바운딩 박스에서 상하 여유 공간을 추가하여 새로운 크롭 영역 계산
+    # 바운딩 박스는 [x1, y1, x2, y2, conf, class_id] 형태
+    x1, y1, x2, y2 = best_box[:4]
+    
+    # 상하좌우 패딩 계산 (바운딩 박스 높이/너비의 padding_percent 비율만큼)
+    box_height = y2 - y1
+    box_width = x2 - x1
+    padding_vertical = int(box_height * padding_percent)
+    padding_horizontal = int(box_width * padding_percent)
+    
+    # 상하좌우 패딩 추가 (이미지 경계를 벗어나지 않도록 제한)
+    new_y1 = max(0, y1 - padding_vertical)
+    new_y2 = min(img_height, y2 + padding_vertical)
+    new_x1 = max(0, x1 - padding_horizontal)
+    new_x2 = min(img_width, x2 + padding_horizontal)
+    
+    # 새로운 크롭 영역으로 이미지 크롭
+    padded_crop = orig_img.crop((new_x1, new_y1, new_x2, new_y2))
+    
     # 크롭된 이미지 저장
     pokecolo_path = os.path.join(TEMP_DIR, "pokecolo.png")
-    best_crop.save(pokecolo_path)
+    padded_crop.save(pokecolo_path)
+    
+    print(f"원본 바운딩 박스: ({x1}, {y1}, {x2}, {y2})")
+    print(f"패딩 추가 바운딩 박스: ({new_x1}, {new_y1}, {new_x2}, {new_y2})")
+    print(f"상하 패딩 {padding_vertical}px 추가됨 (원본 높이의 {padding_percent*100}%)")
+    print(f"좌우 패딩 {padding_horizontal}px 추가됨 (원본 너비의 {padding_percent*100}%)")
     
     return pokecolo_path, True
 
