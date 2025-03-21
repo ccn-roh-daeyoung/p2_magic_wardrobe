@@ -158,7 +158,7 @@ def process_image(input_image, confidence_threshold=0.5):
         confidence_threshold (float): 객체 감지 신뢰도 임계값
         
     Returns:
-        tuple: (바운딩 박스가 있는 이미지, 각 카테고리별 결과 이미지)
+        tuple: (바운딩 박스가 있는 이미지, 각 카테고리별 결과 URL들, pokecolo 검출 여부, 총 처리 시간)
     """
     # 전체 예측 시간 측정 시작
     total_start_time = time.time()
@@ -453,56 +453,53 @@ def process_image(input_image, confidence_threshold=0.5):
         output_path=result_path
     )
     print("결과 이미지 생성 완료.")
-    # 각 카테고리별 상위 이미지 가져오기
-    category_images = {}
+
+    # 카테고리별 상위 이미지 URL 가져오기
+    category_urls = {}
     
     # 메인 카테고리와 모든 세부 카테고리 처리
     all_categories = ALL_CATEGORIES + ONEPIECE_SUBCATEGORIES + HAIR_SUBCATEGORIES
     
     for category in all_categories:
-        # 카테고리가 감지되지 않았다면 None 할당
+        # 카테고리가 감지되지 않았다면 빈 리스트 할당
         if category not in detected_categories:
-            category_images[category] = None
+            category_urls[category] = []
             continue
             
-        # 각 카테고리별 상위 5개 결과
+        # 각 카테고리별 상위 결과
         top_results = sorted(
             category_results[category], 
             key=lambda x: x['probability'], 
             reverse=True
         )[:TOP_K]
         
-        # 만약 결과가 없다면 해당 카테고리는 None으로 설정
+        # 만약 결과가 없다면 해당 카테고리는 빈 리스트로 설정
         if not top_results:
-            category_images[category] = None
+            category_urls[category] = []
             continue
             
-        # 이미지 로드
-        images = []
+        # URL 리스트 저장
+        urls = []
         for result in top_results:
-            img = load_image_from_url(result['image_url'])
-            if img:
-                # 이미지 크기 조정 및 주석 추가
-                img = img.resize((224, 224))
-                images.append(img)
+            if 'image_url' in result and result['image_url']:
+                urls.append({
+                    'url': result['image_url'],
+                    'class_name': result['class_name'],
+                    'probability': result['probability']
+                })
         
-        # 필요한 경우 결과 이미지 수 조정 (5개 맞추기)
-        while len(images) < TOP_K:
-            # 빈 이미지로 채우기
-            empty_img = Image.new('RGB', (224, 224), color=(240, 240, 240))
-            images.append(empty_img)
-            
-        # 5개로 제한
-        images = images[:TOP_K]
-        
-        category_images[category] = images
-    print("카테고리별 결과 이미지 생성 완료.")
-    # pokecolo 검출 정보 반환
-    return result_image, category_images, pokecolo_detected, total_elapsed_time
+        category_urls[category] = urls
+    
+    print("카테고리별 결과 URL 생성 완료.")
+    
+    # result_image, category_urls, pokecolo 검출 정보, 총 처리 시간 반환
+    return result_image, category_urls, pokecolo_detected, total_elapsed_time
 
+
+
+# create_app 함수 수정
 def create_app():
     """Gradio 앱 생성"""
-    
     with gr.Blocks(title="패션 아이템 분석기") as app:
         gr.Markdown("# 패션 아이템 분석 데모")
         gr.Markdown("이미지를 업로드하면 패션 아이템을 감지하고 분류합니다.")
@@ -529,39 +526,48 @@ def create_app():
         # 모든 카테고리에 대한 탭 (메인 카테고리 + 모든 세부 카테고리)
         all_categories = ALL_CATEGORIES + ONEPIECE_SUBCATEGORIES + HAIR_SUBCATEGORIES
         
+        # process_and_display 함수 수정
+        def process_and_display(input_img, conf):
+            result_img, category_urls, is_pokecolo_detected, total_elapsed_time = process_image(input_img, conf)
+            
+            # pokecolo 검출 상태 메시지
+            pokecolo_status = f"✅ Pokecolo가 검출되어 처리되었습니다. Total Time: {total_elapsed_time:.2f}초" if is_pokecolo_detected else f"❌ Pokecolo가 검출되지 않았습니다. 원본 이미지로 처리하였습니다. Total Time: {total_elapsed_time:.2f}초"
+            
+            # 모든 카테고리에 대한 갤러리 이미지 리스트 준비
+            gallery_outputs = []
+            
+            for category in all_categories:
+                # 카테고리 결과 URL이 있는 경우 갤러리용 이미지 정보 생성
+                category_results = category_urls.get(category, [])
+                gallery_items = []
+                
+                for item in category_results:
+                    if 'url' in item and item['url']:
+                        # URL 문자열만 전달하고 캡션은 별도로 설정하지 않음
+                        gallery_items.append(item['url'])
+                
+                gallery_outputs.append(gallery_items)
+            
+            # 결과 이미지와 pokecolo 상태 포함
+            return [result_img, pokecolo_status] + gallery_outputs
+    
         # 각 카테고리별 결과 탭
         with gr.Tabs() as tabs:
             for category in all_categories:
                 with gr.TabItem(category):
                     with gr.Row():
-                        # 각 카테고리별 상위 5개 결과 이미지
-                        result_images = [gr.Image(type="pil", label=f"Top {i+1}") for i in range(TOP_K)]
-        
-        # 처리 함수 연결
-        def process_and_display(input_img, conf):
-            result_img, category_imgs, is_pokecolo_detected, total_elapsed_time = process_image(input_img, conf)
-            
-            # pokecolo 검출 상태 메시지
-            pokecolo_status = f"✅ Pokecolo가 검출되어 처리되었습니다. Total Time: {total_elapsed_time}" if is_pokecolo_detected else f"❌ Pokecolo가 검출되지 않았습니다. 원본 이미지로 처리하였습니다. Total Time: {total_elapsed_time}"
-            
-            # 모든 카테고리에 대해 이미지 채우기
-            all_results = [result_img, pokecolo_status]
-            
-            for category in all_categories:
-                # 카테고리가 감지되지 않은 경우 None 값 5개 추가
-                if category_imgs.get(category) is None:
-                    all_results.extend([None] * TOP_K)
-                else:
-                    category_top_imgs = category_imgs.get(category, [])
-                    # 각 카테고리에 대해 최대 5개의 이미지 추가
-                    all_results.extend(category_top_imgs + [None] * (TOP_K - len(category_top_imgs)))
-            
-            return all_results
+                        # 각 카테고리별 상위 결과 이미지 URL을 표시할 갤러리
+                        result_gallery = gr.Gallery(
+                            label=f"{category} 결과",
+                            columns=5,
+                            object_fit="contain",
+                            height="auto"
+                        )
         
         # 입력 및 출력 연결
         output_components = [output_image, pokecolo_detected]
         for tab in tabs.children:
-            output_components.extend(tab.children[0].children)
+            output_components.append(tab.children[0].children[0])  # 각 탭의 갤러리 컴포넌트
         
         submit_btn.click(
             process_and_display,
