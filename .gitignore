@@ -1,0 +1,10 @@
+__pycache__
+temp/
+data/
+
+
+models/classifier/**/*.png
+*.pt
+*.onnx
+*.json
+*.pth
