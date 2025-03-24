@@ -23,6 +23,7 @@ from config import (
 from models.detector import FashionDetector
 from models.classifier import FashionClassifier
 from models.eye_detector import EyeDetectionProcess
+from models.sift import SIFTReranker
 from utils.image_processing import (
     save_crop, 
     draw_detection_results, 
@@ -35,6 +36,7 @@ detector = FashionDetector(YOLO_MODEL_PATH)
 coord_detector = FashionDetector(C0ORD_YOLO_MODEL_PATH)
 classifier = FashionClassifier()
 eye_detector = EyeDetectionProcess(EYE_YOLONECK_MODEL_PATH)
+sift_reranker = SIFTReranker()
 items_dict = load_items_metadata(ITEMS_METADATA_PATH)
 
 # 메인 카테고리 정의
@@ -104,14 +106,15 @@ def create_default_crop(image_path, crop_type):
         print(f"기본 크롭 생성 중 오류: {str(e)}")
         return None
 
-def detect_pokecolo(image_path, padding_percent=0.1):
+def detect_pokecolo(image_path, padding_percent=0.1, top_padding_percent=0.00):
     """
     입력 이미지에서 pokecolo 객체를 탐지하고, 가장 신뢰도가 높은 하나만 반환
-    상하좌우에 여유 공간(padding)을 추가하여 크롭합니다.
+    주변에 여유 공간(padding)을 추가하여 크롭합니다. 위쪽은 별도로 패딩을 조절할 수 있습니다.
     
     Args:
         image_path: 입력 이미지 경로
-        padding_percent: 상하좌우에 추가할 여유 공간 비율 (원본 높이/너비의 비율)
+        padding_percent: 아래/좌/우에 추가할 여유 공간 비율 (원본 높이/너비의 비율)
+        top_padding_percent: 위쪽에 추가할 여유 공간 비율 (원본 높이의 비율)
     
     Returns:
         tuple: (처리할 이미지 경로, pokecolo가 검출되었는지 여부)
@@ -153,15 +156,18 @@ def detect_pokecolo(image_path, padding_percent=0.1):
     # 바운딩 박스는 [x1, y1, x2, y2, conf, class_id] 형태
     x1, y1, x2, y2 = best_box[:4]
     
-    # 상하좌우 패딩 계산 (바운딩 박스 높이/너비의 padding_percent 비율만큼)
+    # 패딩 계산 (바운딩 박스 높이/너비의 비율만큼)
     box_height = y2 - y1
     box_width = x2 - x1
-    padding_vertical = int(box_height * padding_percent)
-    padding_horizontal = int(box_width * padding_percent)
     
-    # 상하좌우 패딩 추가 (이미지 경계를 벗어나지 않도록 제한)
-    new_y1 = max(0, y1 - padding_vertical)
-    new_y2 = min(img_height, y2 + padding_vertical)
+    # 위쪽/아래쪽/좌우 패딩을 각각 계산
+    top_padding = int(box_height * top_padding_percent)  # 위쪽은 별도 비율 적용
+    bottom_padding = int(box_height * padding_percent)   # 아래쪽 패딩
+    padding_horizontal = int(box_width * padding_percent)  # 좌우 패딩
+    
+    # 패딩 추가 (이미지 경계를 벗어나지 않도록 제한)
+    new_y1 = max(0, y1 - top_padding)  # 위쪽 패딩 적용
+    new_y2 = min(img_height, y2 + bottom_padding)  # 아래쪽 패딩 적용
     new_x1 = max(0, x1 - padding_horizontal)
     new_x2 = min(img_width, x2 + padding_horizontal)
     
@@ -174,7 +180,8 @@ def detect_pokecolo(image_path, padding_percent=0.1):
     
     print(f"원본 바운딩 박스: ({x1}, {y1}, {x2}, {y2})")
     print(f"패딩 추가 바운딩 박스: ({new_x1}, {new_y1}, {new_x2}, {new_y2})")
-    print(f"상하 패딩 {padding_vertical}px 추가됨 (원본 높이의 {padding_percent*100}%)")
+    print(f"위쪽 패딩 {top_padding}px 추가됨 (원본 높이의 {top_padding_percent*100}%)")
+    print(f"아래쪽 패딩 {bottom_padding}px 추가됨 (원본 높이의 {padding_percent*100}%)")
     print(f"좌우 패딩 {padding_horizontal}px 추가됨 (원본 너비의 {padding_percent*100}%)")
     
     return pokecolo_path, True
