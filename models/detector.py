@@ -20,6 +20,7 @@ class FashionDetector:
             model_path (str): YOLO 모델 파일 경로
         """
         self.model = YOLO(model_path)
+        self.model = self.model.to("cpu")
         print(f"YOLO 모델 로드 완료: {model_path}")
     
     def detect(self, image_path, conf_threshold=0.0, save_result=False, result_path=None):
