@@ -14,7 +14,7 @@ import time
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a model on a dataset')
-    parser.add_argument('--model_name', type=str, default='caformer_s18',
+    parser.add_argument('--model_name', type=str, default='efficientnet_b0',
                         choices=['caformer_s18', 'vit_base_patch16_224', 'efficientnet_b0'],
                         help='Model architecture to use')
     parser.add_argument('--data_dir', type=str, default='data/dataset',
