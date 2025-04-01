@@ -25,10 +25,8 @@ def parse_args():
                         help='Learning rate')
     parser.add_argument('--weight_decay', type=float, default=1e-4,
                         help='Weight decay')
-    parser.add_argument('--output_dir', type=str, default='output',
+    parser.add_argument('--output_dir', type=str, default='models/classifier',
                         help='Directory to save model and results')
-    parser.add_argument('--experiment_name', type=str, default='',
-                        help='Experiment name for output folder')
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu',
                         help='Device to use for training')
     parser.add_argument('--num_workers', type=int, default=4,
@@ -277,13 +275,9 @@ def save_class_mapping(class_to_idx, output_dir):
 
 def create_experiment_dir(base_dir, model_name, experiment_name=""):
     """실험 결과를 저장할 디렉토리를 생성합니다."""
-    # 현재 시간을 포함한 실험 폴더 이름 생성
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     
-    if experiment_name:
-        exp_dir_name = f"{timestamp}_{model_name}_{experiment_name}"
-    else:
-        exp_dir_name = f"{timestamp}_{model_name}"
+    # 모델명으로 시작하는 디렉토리 생성 (models/classifier/efficientnet_b0_~~)
+    exp_dir_name = f"{model_name}_{experiment_name}"
     
     # 전체 경로 생성 및 디렉토리 생성
     exp_dir = os.path.join(base_dir, exp_dir_name)
@@ -294,11 +288,15 @@ def create_experiment_dir(base_dir, model_name, experiment_name=""):
 def main():
     args = parse_args()
     
+    # 출력 디렉토리가 존재하지 않으면 생성
+    os.makedirs(args.output_dir, exist_ok=True)
+    
     # 실험 디렉토리 생성
+    experiment_name = args.data_dir.split('_')[-1]
     experiment_dir = create_experiment_dir(
         args.output_dir, 
         args.model_name,
-        args.experiment_name
+        experiment_name
     )
     print(f"실험 결과는 다음 디렉토리에 저장됩니다: {experiment_dir}")
     

@@ -1,3 +1,4 @@
+
 import os
 import json
 import random
@@ -6,6 +7,7 @@ from PIL import Image
 import requests
 from io import BytesIO
 import numpy as np
+import argparse
 
 # 디렉토리 생성 함수
 def create_directories(base_dir):
@@ -97,12 +99,33 @@ def augment_image(item_image, background_paths, num_augmentations=4):
     
     return augmented_images
 
+# 아이템이 이미 처리되었는지 확인하는 함수
+def is_already_processed(item_id, train_dir, val_dir):
+    # 훈련 및 검증 디렉토리에 해당 아이템 ID로 된 폴더가 존재하는지 확인
+    item_train_dir = os.path.join(train_dir, str(item_id))
+    item_val_dir = os.path.join(val_dir, str(item_id))
+    
+    # 두 디렉토리 모두 존재하고, 각 디렉토리에 이미지가 하나 이상 있는지 확인
+    if os.path.exists(item_train_dir) and os.path.exists(item_val_dir):
+        # 훈련 디렉토리에 이미지가 있는지 확인
+        train_images = [f for f in os.listdir(item_train_dir) if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+        
+        # 검증 디렉토리에 이미지가 있는지 확인
+        val_images = [f for f in os.listdir(item_val_dir) if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+        
+        # 두 디렉토리 모두에 이미지가 있으면 이미 처리된 것으로 간주
+        return len(train_images) > 0 and len(val_images) > 0
+    
+    return False
+
 # 메인 함수
-def main():
+def main(args):
     # 경로 설정
-    json_path = 'data/latest_items.json'
-    bg_dir = 'data/theme_sheet'
-    output_dir = 'data/item_dataset_bottoms'
+    json_path = args.json_path
+    bg_dir = args.bg_dir
+    output_dir = args.output_dir
+    target_item_type_list = args.item_type
+    skip_processed = args.skip_processed
     
     # 출력 디렉토리 생성
     train_dir, val_dir = create_directories(output_dir)
@@ -113,9 +136,17 @@ def main():
         print("사용 가능한 배경 이미지가 없습니다.")
         return
     
+    print(f"배경 이미지 {len(background_paths)}개 로드됨")
+    
     # JSON 파일 읽기
     with open(json_path, 'r') as f:
         items_data = json.load(f)
+    
+    print(f"JSON에서 총 {len(items_data)}개의 아이템 정보 로드됨")
+    
+    # 처리된 아이템 수 카운터
+    processed_count = 0
+    skipped_count = 0
     
     # 각 아이템에 대해 증강 작업 수행
     for item in items_data:
@@ -124,16 +155,23 @@ def main():
             image_url = item.get('item_image_url')
             item_type = item.get('item_type')
             
-            # ONEPICE 또는 TOP인 아이템만 처리
-            if not item_id or not image_url or item_type not in ['BOTTOMS']:
+            # 지정된 아이템 타입만 처리
+            if not item_id or not image_url or item_type not in target_item_type_list:
+                continue
+            
+            # 아이템별 디렉토리 경로
+            item_train_dir = os.path.join(train_dir, str(item_id))
+            item_val_dir = os.path.join(val_dir, str(item_id))
+            
+            # 이미 처리된 아이템인지 확인하고 건너뛰기 옵션이 켜져 있으면 건너뛴다
+            if skip_processed and is_already_processed(item_id, train_dir, val_dir):
+                print(f"아이템 {item_id} (타입: {item_type}) - 이미 처리됨, 건너뜀")
+                skipped_count += 1
                 continue
             
             print(f"아이템 처리 중: {item_id} (타입: {item_type})")
             
             # 아이템별 디렉토리 생성
-            item_train_dir = os.path.join(train_dir, str(item_id))
-            item_val_dir = os.path.join(val_dir, str(item_id))
-            
             os.makedirs(item_train_dir, exist_ok=True)
             os.makedirs(item_val_dir, exist_ok=True)
             
@@ -145,7 +183,7 @@ def main():
                 original_image = original_image.convert('RGBA')
             
             # 이미지 증강
-            augmented_images = augment_image(original_image, background_paths)
+            augmented_images = augment_image(original_image, background_paths, args.num_augmentations)
             
             # 증강된 이미지 저장
             # 훈련 세트에 모든 증강 이미지 저장
@@ -166,11 +204,49 @@ def main():
             val_img_path = os.path.join(item_val_dir, val_img_filename)
             val_img.save(val_img_path)
             
+            processed_count += 1
             print(f"아이템 {item_id} 처리 완료: 훈련 이미지 {len(augmented_images)}개, 검증 이미지 1개")
             
         except Exception as e:
             print(f"아이템 {item_id} 처리 오류: {e}")
             continue
+    
+    print(f"처리 완료: {target_item_type_list} 타입 아이템 {processed_count}개 처리됨, {skipped_count}개 건너뜀")
 
 if __name__ == "__main__":
-    main()
+    # 명령줄 인자 파서 설정
+    parser = argparse.ArgumentParser(description='이미지 증강 및 데이터셋 생성 도구')
+    
+    parser.add_argument('--item_type', nargs='+', default=['BOTTOMS'],
+                        help='처리할 아이템 타입 목록 (예: BOTTOMS TOP ONEPIECE)')
+    
+    parser.add_argument('--output_dir', type=str, 
+                        help='출력 디렉토리 경로')
+    
+    parser.add_argument('--json_path', type=str, default='data/latest_items.json',
+                        help='아이템 정보가 있는 JSON 파일 경로')
+    
+    parser.add_argument('--bg_dir', type=str, default='data/theme_sheet',
+                        help='배경 이미지가 있는 디렉토리 경로')
+    
+    parser.add_argument('--num_augmentations', type=int, default=4,
+                        help='각 아이템당 생성할 증강 이미지 수')
+    
+    parser.add_argument('--skip_processed', action='store_true',
+                        help='이미 처리된 아이템을 건너뛰려면 이 옵션을 사용')
+    
+    args = parser.parse_args()
+    
+    # output_dir이 지정되지 않은 경우 기본값 설정
+    if len(args.item_type) == 1:
+        args.output_dir = f'data/item_dataset_{args.item_type[0].lower()}'
+    # else:
+    #     args.output_dir = f'data/item_dataset_accessory_left_right'
+    
+    main(args)
+
+# 이미 처리된 이미지 건너뛰기 옵션을 사용하여 실행
+# python script.py --item_type BOTTOMS TOP --skip_processed
+
+# 이미 처리된 이미지도 다시 처리하려면 옵션을 생략
+# python script.py --item_type BOTTOMS TOP
